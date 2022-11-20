@@ -11,16 +11,14 @@ contract Verifier is Context, AccessControl {
     mapping(address => bool) private agencies;
     mapping(address => bool) private users;
 
-    event AgencyVerified(address indexed user, bool verified);
-    event UserVerified(address indexed user, bool verified);
+    event AgencyVerified(address user, bool verified);
+    event UserVerified(address user, bool verified);
 
     constructor() {
         _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
 
-    function setVerifier(address _verifier, bool _set) public {
-        require(hasRole(DEFAULT_ADMIN_ROLE, _msgSender()));
-
+    function setVerifier(address _verifier, bool _set) public onlyRole(DEFAULT_ADMIN_ROLE) {
         if (_set) {
             _setupRole(VERIFIER_ROLE, _verifier);
         } else {

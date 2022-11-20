@@ -3,216 +3,156 @@ import { ethers } from "hardhat";
 import { ethers as eth } from "ethers";
 
 describe("Fullfill Buy", function () {
-  let usdcContract: eth.Contract;
-  let usdcFactory: eth.ContractFactory;
+	let usdcContract: eth.Contract;
+	let usdcFactory: eth.ContractFactory;
 
-  let feeContract: eth.Contract;
-  let feeFactory: eth.ContractFactory;
+	let feeContract: eth.Contract;
+	let feeFactory: eth.ContractFactory;
 
-  let referralContract: eth.Contract;
-  let referralFactory: eth.ContractFactory;
+	let referralContract: eth.Contract;
+	let referralFactory: eth.ContractFactory;
 
-  let verifierContract: eth.Contract;
-  let verifierFactory: eth.ContractFactory;
+	let verifierContract: eth.Contract;
+	let verifierFactory: eth.ContractFactory;
 
-  let realEstateContract: eth.Contract;
-  let realEstateFactory: eth.ContractFactory;
+	let realEstateContract: eth.Contract;
+	let realEstateFactory: eth.ContractFactory;
 
-  let owner: eth.Signer,
-    marketplace: eth.Signer,
-    tokenHolder: eth.Signer,
-    multiSigner: eth.Signer,
-    agency: eth.Signer;
+	let owner: eth.Signer,
+		marketplace: eth.Signer,
+		tokenHolder: eth.Signer,
+		multiSigner: eth.Signer,
+		buyer: eth.Signer,
+		agency: eth.Signer;
 
-  let marketplaceContract: eth.Contract;
-  let marketplaceFactory: eth.ContractFactory;
+	let marketplaceContract: eth.Contract;
+	let marketplaceFactory: eth.ContractFactory;
 
-  const ONE_DOLLAR = eth.BigNumber.from(1_000_000);
-  const HUNDRED_PERCENT = eth.BigNumber.from(10_000);
+	const BOOKING_FEE_PERCENTAGE = eth.BigNumber.from(1000);
 
-  const BOOKING_FEE_PERCENTAGE = eth.BigNumber.from(1000);
-  const PLATFORM_FEE_PERCENTAGE = eth.BigNumber.from(500);
+	const ONE_DOLLAR = eth.BigNumber.from(1_000_000);
+	const HUNDRED_PERCENT = eth.BigNumber.from(10_000);
 
-  // _platform,  _realEstate,  _verifier,  _fee,  _referral,  _usdcAddress,  _priceFeed) {
-  beforeEach(async function () {
-    [owner, marketplace, tokenHolder, multiSigner, agency] =
-      await ethers.getSigners();
+	const POA_FEE = eth.BigNumber.from(2_000).mul(ONE_DOLLAR);
+	const PRICE = eth.BigNumber.from(500_000).mul(ONE_DOLLAR);
 
-    const multiAddress = await multiSigner.getAddress();
-    // Setting up the verifier contract
-    verifierFactory = await ethers.getContractFactory("Verifier");
-    verifierContract = await verifierFactory.deploy();
-    await verifierContract.deployed();
+	const BUYER_FEE_NUMERATOR = eth.BigNumber.from(200);
+	const SELLER_FEE_NUMERATOR = eth.BigNumber.from(200);
 
-    await verifierContract.connect(owner).setVerifier(multiAddress, true);
+	beforeEach(async function () {
+		[owner, marketplace, tokenHolder, multiSigner, agency, buyer] =
+			await ethers.getSigners();
 
-    // Setting up the referral contract
-    referralFactory = await ethers.getContractFactory("Referral");
-    referralContract = await referralFactory.deploy();
-    await referralContract.deployed();
+		const multiAddress = await multiSigner.getAddress();
+		// Setting up the verifier contract
+		verifierFactory = await ethers.getContractFactory("Verifier");
+		verifierContract = await verifierFactory.deploy();
+		await verifierContract.deployed();
 
-    await referralContract.connect(owner).setService(multiAddress, true);
+		await verifierContract.connect(owner).setVerifier(multiAddress, true);
 
-    // Setting up the fee contract
-    feeFactory = await ethers.getContractFactory("Fee");
-    feeContract = await feeFactory.deploy();
-    await feeContract.deployed();
+		// Setting up the referral contract
+		referralFactory = await ethers.getContractFactory("Referral");
+		referralContract = await referralFactory.deploy();
+		await referralContract.deployed();
 
-    await feeContract.connect(owner).setFeeChanger(multiAddress);
+		await referralContract.connect(owner).setService(multiAddress, true);
 
-    // Setting up the real estate contract
-    realEstateFactory = await ethers.getContractFactory("RealEstate");
-    realEstateContract = await realEstateFactory.deploy();
-    await realEstateContract.deployed();
+		// Setting up the fee contract
+		feeFactory = await ethers.getContractFactory("Fee");
+		feeContract = await feeFactory.deploy(
+			BOOKING_FEE_PERCENTAGE, POA_FEE, BUYER_FEE_NUMERATOR, SELLER_FEE_NUMERATOR
+		);
+		await feeContract.deployed();
 
-    const ownerAddress = await owner.getAddress();
-    const tokenHolderAddress = await tokenHolder.getAddress();
-    const marketplaceAddress = await marketplace.getAddress();
+		await feeContract.connect(owner).setFeeChanger(multiAddress);
 
-    // Setting up the mock usdc contract
-    usdcFactory = await ethers.getContractFactory("MockUsdc");
-    usdcContract = await usdcFactory.deploy(
-      marketplaceAddress,
-      tokenHolderAddress
-    );
-    await usdcContract.deployed();
+		// Setting up the real estate contract
+		realEstateFactory = await ethers.getContractFactory("RealEstate");
+		realEstateContract = await realEstateFactory.deploy();
+		await realEstateContract.deployed();
 
-    // Setting up the marketplace contract
-    marketplaceFactory = await ethers.getContractFactory("Marketplace");
-    marketplaceContract = await marketplaceFactory.deploy(
-      ownerAddress,
-      realEstateContract.address,
-      verifierContract.address,
-      feeContract.address,
-      referralContract.address,
-      usdcContract.address,
-      ethers.constants.AddressZero
-    );
-    await marketplaceContract.deployed();
+		const ownerAddress = await owner.getAddress();
+		const tokenHolderAddress = await tokenHolder.getAddress();
+		const marketplaceAddress = await marketplace.getAddress();
+		const buyerAddress = await buyer.getAddress();
 
-    await realEstateContract
-      .connect(owner)
-      .setMarketplaceContract(marketplaceContract.address);
+		// Setting up the mock usdc contract
+		usdcFactory = await ethers.getContractFactory("MockUsdc");
+		usdcContract = await usdcFactory.deploy(
+			buyerAddress,
+			tokenHolderAddress
+		);
+		await usdcContract.deployed();
 
-    await marketplaceContract
-      .connect(owner)
-      .setMarketplace(marketplaceAddress, true);
+		// Setting up the marketplace contract
+		marketplaceFactory = await ethers.getContractFactory("Marketplace");
+		marketplaceContract = await marketplaceFactory.deploy(
+			ownerAddress,
+			realEstateContract.address,
+			verifierContract.address,
+			feeContract.address,
+			referralContract.address,
+			usdcContract.address,
+			ethers.constants.AddressZero
+		);
+		await marketplaceContract.deployed();
 
-    await feeContract
-      .connect(multiSigner)
-      .setFeePercentage(
-        BOOKING_FEE_PERCENTAGE,
-        PLATFORM_FEE_PERCENTAGE
-      );
+		await realEstateContract
+			.connect(owner)
+			.setMarketplaceContract(marketplaceContract.address);
 
-    const agencyAddress = await agency.getAddress();
-    const buyerAddress = await marketplace.getAddress();
-    await verifierContract
-      .connect(multiSigner)
-      .setVerificationAgency(agencyAddress, true);
-    await verifierContract
-      .connect(multiSigner)
-      .setVerificationUser(buyerAddress, true);
-  });
+		await marketplaceContract
+			.connect(owner)
+			.setMarketplace(marketplaceAddress, true);
 
-  it("Fullfill buy property of tokenId not exits", async function () {
-    const ONE_DOLLAR = eth.BigNumber.from(1_000_000);
-    const PRICE = eth.BigNumber.from(500).mul(ONE_DOLLAR);
+		const agencyAddress = await agency.getAddress();
 
-    const bookingFee = PRICE.mul(BOOKING_FEE_PERCENTAGE).div(HUNDRED_PERCENT);
-    let platformFee = await feeContract.getCustomerFee(PRICE);
-    const finalPrice = PRICE.sub(bookingFee).add(platformFee);
+		await verifierContract
+			.connect(multiSigner)
+			.setVerificationAgency(agencyAddress, true);
+		await verifierContract
+			.connect(multiSigner)
+			.setVerificationUser(buyerAddress, true);
+	});
+	
 
-    const tokenHolderAddress = await tokenHolder.getAddress();
-    const buyerAddress = await marketplace.getAddress();
+	it("Fullfill buy property of tokenId not exits", async function () {
+		const tokenHolderAddress = await tokenHolder.getAddress();
 
-    await marketplaceContract
-      .connect(agency)
-      .createProperty("", tokenHolderAddress, PRICE);
+		await marketplaceContract
+			.connect(agency)
+			.createProperty("", tokenHolderAddress, PRICE);
 
-    const initialBalanceMarketplaceContract = await usdcContract.balanceOf(
-      marketplaceContract.address
-    );
-    const initialBalanceMarketplace = await usdcContract.balanceOf(
-      buyerAddress
-    );
-  
-    await usdcContract
-      .connect(marketplace)
-      .increaseAllowance(marketplaceContract.address, bookingFee);
 
-    await marketplaceContract.connect(marketplace).bookProperty(1, false);
+		// booking stage
+		const bookingFee = await feeContract.getBookingFee(PRICE);
 
-    await usdcContract
-      .connect(marketplace)
-      .increaseAllowance(marketplaceContract.address, finalPrice);
+		await usdcContract
+			.connect(buyer)
+			.increaseAllowance(marketplaceContract.address, bookingFee);
 
-    await marketplaceContract.connect(marketplace).signedAllDoc(1, true);
-    await marketplaceContract.connect(marketplace).buyProperty(1);
+		await marketplaceContract.connect(buyer).bookProperty(1, false);
 
-    const finalBalanceMarketplaceContract = await usdcContract.balanceOf(
-      marketplaceContract.address
-    );
-    const finalBalanceMarketplace = await usdcContract.balanceOf(buyerAddress);
 
-    expect(
-      finalBalanceMarketplaceContract.sub(initialBalanceMarketplaceContract)
-    ).to.equal(initialBalanceMarketplace.sub(finalBalanceMarketplace));
-  
-    const tx = marketplaceContract.connect(marketplace).fulfillBuy(2);
+		// signing docs stage
+		await marketplaceContract.connect(marketplace).signedAllDoc(1, true);
 
-    await expect(tx).to.be.reverted;
-  });
+		// buying stage
 
-  it("Fullfill buy property that not owned by you", async function () {
-    const ONE_DOLLAR = eth.BigNumber.from(1_000_000);
-    const PRICE = eth.BigNumber.from(500).mul(ONE_DOLLAR);
+		const buyerFee = await feeContract.getBuyerFee(PRICE);
 
-    const bookingFee = PRICE.mul(BOOKING_FEE_PERCENTAGE).div(HUNDRED_PERCENT);
-    let platformFee = await feeContract.getCustomerFee(PRICE);
-    const finalPrice = PRICE.sub(bookingFee).add(platformFee);
+		const finalPrice = PRICE.sub(bookingFee).add(buyerFee);
 
-    const tokenHolderAddress = await tokenHolder.getAddress();
-    const buyerAddress = await marketplace.getAddress();
 
-    await marketplaceContract
-      .connect(agency)
-      .createProperty("", tokenHolderAddress, PRICE);
+		await usdcContract
+			.connect(buyer)
+			.increaseAllowance(marketplaceContract.address, finalPrice);
 
-    const initialBalanceMarketplaceContract = await usdcContract.balanceOf(
-      marketplaceContract.address
-    );
-    const initialBalanceMarketplace = await usdcContract.balanceOf(
-      buyerAddress
-    );
-  
-    await usdcContract
-      .connect(marketplace)
-      .increaseAllowance(marketplaceContract.address, bookingFee);
+		await marketplaceContract.connect(buyer).buyProperty(1);
 
-    await marketplaceContract.connect(marketplace).bookProperty(1, false);
+		const tx = marketplaceContract.connect(marketplace).fulfillBuy(2);
 
-    await usdcContract
-      .connect(marketplace)
-      .increaseAllowance(marketplaceContract.address, finalPrice);
-
-    await marketplaceContract.connect(marketplace).signedAllDoc(1, true);
-    await marketplaceContract.connect(marketplace).buyProperty(1);
-
-    const finalBalanceMarketplaceContract = await usdcContract.balanceOf(
-      marketplaceContract.address
-    );
-    const finalBalanceMarketplace = await usdcContract.balanceOf(buyerAddress);
-
-    expect(
-      finalBalanceMarketplaceContract.sub(initialBalanceMarketplaceContract)
-    ).to.equal(initialBalanceMarketplace.sub(finalBalanceMarketplace));
-    
-    const tx = marketplaceContract.connect(agency).fulfillBuy(1);
-
-    await expect(tx).to.be.reverted;
-   
-    
-  });
-
+		await expect(tx).to.be.reverted;
+	});
 });

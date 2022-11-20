@@ -3,32 +3,46 @@
 pragma solidity ^0.8.1;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
-
 
 contract Fee is AccessControl {
-
     bytes32 public constant FEE_CHANGER_ROLE = keccak256("FEE_CHANGER");
     
-    //  successful case fees
-    uint256 private bookingPercentage;
-    uint256 private platformFeePercentage = 1000;
+    uint256 private bookingNumerator;
     uint256 private poaFee;
 
-    using SafeMath for uint256;
+    uint256 private buyerFeeNumerator;
+    uint256 private sellerFeeNumerator;
 
     event BookingPercentageChanged(uint256 newPercentage, uint256 timestamp);
-    event PlatformFeePercentageChanged(uint256 newPercentage, uint256 timestamp);
     event PoaFeeChanged(uint256 newFee, uint256 timestamp);
+    event BuyerFeeChanged(uint256 newFeeNumerator, uint256 timestamp);
+    event SellerFeeChanged(uint256 newFeeNumerator, uint256 timestamp);
 
-    constructor() {
+    constructor(uint256 _bookingPercentage, uint256 _poaFee, uint256 _buyerFeeNumerator, uint256 _sellerFeeNumerator) {
         _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
+        _setupRole(FEE_CHANGER_ROLE, _msgSender());
+        
+        setBookingFeeNumerator(_bookingPercentage);
+        setPoaFee(_poaFee);
+        setBuyerFeeNumerator(_buyerFeeNumerator);
+        setSellerFeeNumerator(_sellerFeeNumerator);
     }
 
     modifier checkPercentage(uint256 _percentage) {
-        require(_percentage <= 10000, "Percentage must be less than or equal to 100");
-        require(_percentage >= 0);
+        require(_percentage >= 0 && _percentage <= 10000, "Percentage 0 <= x <= 10000");
         _;
+    }
+
+    function setBuyerFeeNumerator(uint256 _numerator) public checkPercentage(_numerator) onlyRole(FEE_CHANGER_ROLE) {
+        buyerFeeNumerator = _numerator;
+
+        emit BuyerFeeChanged(_numerator, block.timestamp);
+    }
+
+    function setSellerFeeNumerator(uint256 _numerator) public checkPercentage(_numerator) onlyRole(FEE_CHANGER_ROLE) {
+        sellerFeeNumerator = _numerator;
+
+        emit SellerFeeChanged(_numerator, block.timestamp);
     }
 
     function setFeeChanger(address _feeChanger) public onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -40,31 +54,16 @@ contract Fee is AccessControl {
         emit PoaFeeChanged(poaFee, block.timestamp);
     }
 
-    function setFeePercentage(uint256 _booking, uint256 _platform) public onlyRole(FEE_CHANGER_ROLE) checkPercentage(_booking) checkPercentage(_platform) {
-        uint256 sum = _booking.add(_platform);
-        
-        require(sum <= 10000, "Percentage must be lte 100");
-
-        bookingPercentage = _booking;
-        platformFeePercentage = _platform;
-        
-        uint256 bt = block.timestamp;
-        emit BookingPercentageChanged(_booking, bt);
-        emit PlatformFeePercentageChanged(_platform, bt);
-    }
-
-    function getBookingPercentage() public view returns (uint256) {
-        return bookingPercentage;
+    function setBookingFeeNumerator(uint256 _bookingNumerator) public onlyRole(FEE_CHANGER_ROLE) checkPercentage(_bookingNumerator) {
+        bookingNumerator = _bookingNumerator;
+        emit BookingPercentageChanged(_bookingNumerator, block.timestamp);
     }
 
     function getBookingFee(uint256 _amount) public view returns (uint256) {
-        return _amount.mul(bookingPercentage).div(10000);
+        return _amount * bookingNumerator / 10000;
     }
 
-    function getPlatformFee(uint256 _amount) public pure returns (uint256) {
-        // compute factor without if statements however log is not supported in solidity
-        // factor = 10 ** (uint256(log10(_amount)) - 1);
-
+    function getPlatformFee(uint256 _amount) internal pure returns (uint256) {
         if (_amount == 0) {
             return 0;
         }
@@ -75,11 +74,15 @@ contract Fee is AccessControl {
             factor = factor * 10;
         }
 
-        return ((_amount / factor) + 1) * factor / 10;
+        return ((_amount / factor) + 1) * factor;
     }
 
-    function getCustomerFee(uint256 _amount) public pure returns (uint256) {
-        return getPlatformFee(_amount) / 2;
+    function getBuyerFee(uint256 _amount) public view returns (uint256) {
+        return getPlatformFee(_amount) * buyerFeeNumerator / 10000;
+    }
+
+    function getSellerFee(uint256 _amount) public view returns (uint256) {
+        return getPlatformFee(_amount) * sellerFeeNumerator / 10000;
     }
 
     function getPoaFee() public view returns (uint256) {

@@ -2,96 +2,97 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { ethers as eth } from "ethers";
 
+
+function getPlatformFee(price: eth.BigNumber): eth.BigNumber {
+	if (price.eq(0)) {
+		return eth.BigNumber.from(0);
+	}
+
+	let factor = eth.BigNumber.from(1);
+
+	for (let i = 0; i < 18 && price.gt(factor.mul(10)); i++) {
+		factor = factor.mul(10);
+	}
+
+	return (
+		(
+			price
+				.div(factor)
+		)
+			.add(1)
+	)
+		.mul(factor);
+}
+
 describe("Fee contract with values", function () {
-  let feeContract: eth.Contract;
-  let feeFactory: eth.ContractFactory;
-  let owner: eth.Signer, feeChanger: eth.Signer, addr3: eth.Signer;
+	let feeContract: eth.Contract;
+	let feeFactory: eth.ContractFactory;
+	let owner: eth.Signer, feeChanger: eth.Signer;
 
-  // Setting up fee percentage variables
-  // @example: The 100% for smart contract is 10000
-  // 			 The 50% is 5000
-  const BOOKING_FEE_PERCENTAGE = eth.BigNumber.from(1000);
-  const PLATFORM_FEE_PERCENTAGE = eth.BigNumber.from(1000);
+	const BOOKING_FEE_PERCENTAGE = eth.BigNumber.from(1000);
 
-  const ONE_DOLLAR = eth.BigNumber.from(1_000_000);
-  const HUNDRED_PERCENT = eth.BigNumber.from(10_000);
-  // This is actual value of the POA FEE
-  const POA_FEE = eth.BigNumber.from(2_000).mul(ONE_DOLLAR);
+	const ONE_DOLLAR = eth.BigNumber.from(1_000_000);
+	const HUNDRED_PERCENT = eth.BigNumber.from(10_000);
 
-  const PRICE = eth.BigNumber.from(500_000).mul(ONE_DOLLAR);
+	const POA_FEE = eth.BigNumber.from(2_000).mul(ONE_DOLLAR);
+	const PRICE = eth.BigNumber.from(500_000).mul(ONE_DOLLAR);
 
-  const bookingFee = PRICE.mul(BOOKING_FEE_PERCENTAGE).div(HUNDRED_PERCENT);
-  const platformFee = PRICE.mul(PLATFORM_FEE_PERCENTAGE).div(HUNDRED_PERCENT);
+	const BUYER_FEE_NUMERATOR = eth.BigNumber.from(200);
+	const SELLER_FEE_NUMERATOR = eth.BigNumber.from(200);
 
-  beforeEach(async function () {
-    [owner, feeChanger, addr3] = await ethers.getSigners();
+	beforeEach(async function () {
+		[owner, feeChanger] = await ethers.getSigners();
 
-    feeFactory = await ethers.getContractFactory("Fee");
-    feeContract = await feeFactory.deploy();
-    await feeContract.deployed();
+		feeFactory = await ethers.getContractFactory("Fee");
 
-    // Getting address of fee changer
-    const address = await feeChanger.getAddress();
-    // Connecting to smart contract and setting role for the fee changer
-    await feeContract.connect(owner).setFeeChanger(address);
-    // Setting fee percentage for the fee contract
-    await feeContract
-      .connect(feeChanger)
-      .setFeePercentage(
-        BOOKING_FEE_PERCENTAGE,
-        PLATFORM_FEE_PERCENTAGE,
-      );
-    // Setting POA fee for the fee contract
-    await feeContract.connect(feeChanger).setPoaFee(POA_FEE);
-  });
+		feeContract = await feeFactory.deploy(
+			BOOKING_FEE_PERCENTAGE, POA_FEE, BUYER_FEE_NUMERATOR, SELLER_FEE_NUMERATOR
+		);
 
-  it(`should have a booking percentage of ${BOOKING_FEE_PERCENTAGE}`, async function () {
-    const feePercentage = await feeContract.getBookingPercentage();
-    expect(feePercentage).to.eq(BOOKING_FEE_PERCENTAGE);
-  });
+		await feeContract.deployed();
 
-  it(`should have a poa fee of ${POA_FEE}`, async function () {
-    const fee = await feeContract.getPoaFee();
-    expect(fee).to.eq(POA_FEE);
-  });
+		// Getting address of fee changer
+		const address = await feeChanger.getAddress();
+		// Connecting to smart contract and setting role for the fee changer
+		await feeContract.connect(owner).setFeeChanger(address);
+	});
 
-  it(`should have booking fee of ${bookingFee} with price ${PRICE}`, async function () {
-    const fee = await feeContract.getBookingFee(PRICE);
-    expect(fee).to.eq(bookingFee);
-  });
+	it(`should have a booking fee of ${PRICE} * ${BOOKING_FEE_PERCENTAGE}/${HUNDRED_PERCENT}`, async function () {
+		const fee = await feeContract.getBookingFee(PRICE);
+		expect(fee).to.eq(PRICE.mul(BOOKING_FEE_PERCENTAGE).div(HUNDRED_PERCENT));
+	});
 
-  it(`should have platform fee of ${platformFee} with price ${PRICE}`, async function () {
-    const fee = await feeContract.getPlatformFee(PRICE);
-    expect(fee).to.eq(eth.BigNumber.from(60000).mul(ONE_DOLLAR));
-  });
+	it(`should have a poa fee of ${POA_FEE}`, async function () {
+		const fee = await feeContract.getPoaFee();
+		expect(fee).to.eq(POA_FEE);
+	});
 
-  it("should have booking fee of 0 if input is zero", async function () {
-    const fee = await feeContract.getBookingFee(0);
-    expect(fee).to.eq(0);
-  });
+	it(`should have buyer fee of 2% approximately of price ${PRICE}`, async function () {
+		const fee = await feeContract.getBuyerFee(PRICE);
 
-  it("should have platform fee of 0 if input is zero", async function () {
-    const fee = await feeContract.getPlatformFee(0);
-    expect(fee).to.eq(0);
-  });
+		const buyerFee = getPlatformFee(PRICE)
+			.mul(BUYER_FEE_NUMERATOR)
+			.div(HUNDRED_PERCENT)
 
-  it("should pass test", async function () {
-    const fee = await feeContract.getPlatformFee(300000);
-    expect(fee).to.eq(40000);
+		// console.log(`Buyer fee: ${buyerFee.toString()}/${PRICE.toString()}`);
 
-    const fee2 = await feeContract.getPlatformFee(350000);
-    expect(fee2).to.eq(40000);
+		expect(fee).to.eq(buyerFee);
+	});
 
-    const fee3 = await feeContract.getPlatformFee(400001);
-    expect(fee3).to.eq(50000);
+	it(`should have seller fee of 2% approximately of price ${PRICE}`, async function () {
+		const fee = await feeContract.getSellerFee(PRICE);
 
-    const fee4 = await feeContract.getPlatformFee(450000);
-    expect(fee4).to.eq(50000);
+		const sellerFee = getPlatformFee(PRICE)
+			.mul(SELLER_FEE_NUMERATOR)
+			.div(HUNDRED_PERCENT)
 
-    const fee5 = await feeContract.getPlatformFee(500003);
-    expect(fee5).to.eq(60000);
+		// console.log(`Seller fee: ${sellerFee.toString()}/${PRICE.toString()}`);
 
-    const fee6 = await feeContract.getPlatformFee(550000);
-    expect(fee6).to.eq(60000);
-  });
+		expect(fee).to.eq(sellerFee);
+	});
+
+	it("should have booking fee of 0 if input is zero", async function () {
+		const fee = await feeContract.getBookingFee(0);
+		expect(fee).to.eq(0);
+	});
 });
