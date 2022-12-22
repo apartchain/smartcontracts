@@ -1,5 +1,5 @@
 // Contract Name: Referral
-//SPDX-License-Identifier: Unlicense
+//SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
 

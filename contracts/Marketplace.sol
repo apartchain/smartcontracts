@@ -1,6 +1,6 @@
 // solhint-disable not-rely-on-time
 // Contract Name: Marketplace
-//SPDX-License-Identifier: Unlicense
+//SPDX-License-Identifier: MIT
 pragma solidity ^0.8.9;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
